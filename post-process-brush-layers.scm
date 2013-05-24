@@ -7,12 +7,15 @@
           (let* (
                  (drawable (car (gimp-image-get-active-drawable img)))
                 )
-                (gimp-levels drawable 5 0 200 1.0 0 255)
-                (plug-in-normalize 1 img drawable)
+                ; without this white is not made  transparent
+                ; (gimp-levels drawable 5 0 244 1.0 0 255)
+                ; (plug-in-normalize 1 img drawable)
                 ; (plug-in-colortoalpha 1 img drawable '(255 255 255))
+                (plug-in-gauss 1 img drawable 10 10 0)
           ))
       (vector->list (car (cdr (gimp-image-get-layers img))))
   )
+  (gimp-image-convert-grayscale im)
 )
 
 (script-fu-register "post-process-brush-layers"

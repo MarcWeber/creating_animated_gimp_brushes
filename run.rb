@@ -1,4 +1,4 @@
-# encoding: UTF-8# encoding: UTF-8
+#.png encoding: UTF-8# encoding: UTF-8
 # requires: parallel, rmagicks package
 
 require 'RMagick'
@@ -7,101 +7,159 @@ include Magick
 
 require 'parallel'
 
-def pov_doc(args)
+class RenderIt
 
-  texture = <<-EOF
-
-    #declare gradient_height = 0.5;
-
-    pigment {
-      function { clip(1- ((gradient_height-y)/gradient_height),0,1) }
-    }
-    finish {
-      ambient 1
-    }
-  EOF
-
-  camera = case args[:view]
-  when "x"
-    <<-EOF
-     camera {
-      orthographic
-      location <3, 0.5, 0>
-      look_at  <0, 0.2,  0>
-    }
-
-    disc { <0,0,0>, <0,2,0>, 1, 0.4 }
-    disc { <0,1,0>, <0,2,0>, 1, 0.4 }
-    EOF
-  when "z"
-    <<-EOF
-    camera {
-      orthographic
-      location <0, 0.5, 3>
-      look_at  <0, 0.2,  0>
-    }
-
-    disc { <0,0,0>, <0,2,0>, 1, 0.4 }
-    disc { <0,1,0>, <0,2,0>, 1, 0.4 }
-    EOF
-  else
-    <<-EOF
-    #declare DISTANCE_NEAR = -0.2;
-    #declare DISTANCE_FAR = 2;
-    #declare CAMERA_POSITION = <0, -10, 0>;
-    camera {
-      orthographic
-      angle 10
-      right x*100/100
-      location CAMERA_POSITION
-      look_at  <0, 2,  0>
-    }
-    EOF
+  def initialize(args)
+    @args = args.clone
+    @args[:Z_CORRECTION] = 0.0
+    @args[:gradient_height] = 0.5
   end
 
-text = <<EOF
-#include "colors.inc"    // The include files contain
-#include "transforms.inc"    // The include files contain
-#
-// #include "stones.inc"    // 
-// #include "textures.inc"    // pre-defined scene elements
-// #include "shapes.inc"
-// #include "glass.inc"
-// #include "metals.inc"
-#include "math.inc"
+  def internal_render
+    tmp_file = "/tmp/#{@args[:out]}#{@args[:view]}.pov";
+    File.open(tmp_file, "wb") { |file| file.write(pov_doc)}
+    # +ua  means transparent
+    cmd = "povray  -O#{@args[:out]}#{@args[:view]}.png +H#{@args[:size]} +W#{@args[:size]} #{tmp_file} &> /dev/null"
+    s cmd
+  end
 
-#declare rotate_z = 0; // x-tilt (links)
-#declare rotate_x = 0; // y-tilt (unten)
-#{camera}
+  def render()
+    view = @args[:view];
+    @args.delete(:view)
 
-#{args[:object]}
-// light_source { 
-//   <0, -5, 0> 
-//   color White
-//   fade_distance 5
-//   fade_power 1
-//   shadowless
-// }
+    tries = 0
+    while (@args[:Z_CORRECTION] < 10 && tries < 20)
+      tries += 1
+      internal_render
 
-EOF
-text \
-  .gsub(/rotate_z = .*/, "rotate_z = #{args[:max_angle_x] * args[:x_tilt]};") \
-  .gsub(/rotate_x = .*/, "rotate_x = #{-args[:max_angle_y] * args[:y_tilt]};") \
-  .gsub('TEXTURE', texture)
+      list = ImageList.new(@args[:out]+".png")
+      p_max = 65535
+
+      blackest = p_max
+
+      threshold = 0.1
+      list.get_pixels(0,0, @args[:size], @args[:size]).each {|pixel|
+          if (pixel.opacity < p_max && pixel.red < blackest)
+            blackest = pixel.red
+          end
+      }
+      puts "blackest #{blackest}"
+
+      if (blackest < p_max * threshold || @args[:Z_CORRECTION] > 10)
+        break
+      else
+        # retry moving object down
+        @args[:Z_CORRECTION] += @args[:gradient_height] * (Float(blackest) / p_max)
+        puts "retrying with #{@args[:Z_CORRECTION]}"
+      end
+    end
+
+    if (view)
+      view.split(",").each {|v| 
+        @args[:view] = v
+        internal_render
+      }
+    end
+
+  end
+
+  def pov_doc()
+
+    texture = <<-EOF
+      pigment {
+        function { clip(1- ((gradient_height-y)/gradient_height),0,1) }
+      }
+      finish {
+        ambient 1
+      }
+    EOF
+
+    camera = case @args[:view]
+    when "x"
+      <<-EOF
+       camera {
+        orthographic
+        location <3, 0.5, 0>
+        look_at  <0, 0.2,  0>
+      }
+
+      disc { <0,0,0>, <0,2,0>, 1, 0.4 }
+      disc { <0,1,0>, <0,2,0>, 1, 0.4 }
+      EOF
+    when "z"
+      <<-EOF
+      camera {
+        orthographic
+        location <0, 0.5, 3>
+        look_at  <0, 0.2,  0>
+      }
+
+      disc { <0,0,0>, <0,2,0>, 1, 0.4 }
+      disc { <0,1,0>, <0,2,0>, 1, 0.4 }
+      EOF
+    else
+      <<-EOF
+      #declare DISTANCE_NEAR = -0.2;
+      #declare DISTANCE_FAR = 2;
+      #declare CAMERA_POSITION = <0, -10, 0>;
+      camera {
+        orthographic
+        angle 10
+        right x*100/100
+        location CAMERA_POSITION
+        look_at  <0, 2,  0>
+      }
+      EOF
+    end
+
+    text = <<-EOF
+      #include "colors.inc"    // The include files contain
+      #include "transforms.inc"    // The include files contain
+      #
+      // #include "stones.inc"    // 
+      // #include "textures.inc"    // pre-defined scene elements
+      // #include "shapes.inc"
+      // #include "glass.inc"
+      // #include "metals.inc"
+      #include "math.inc"
+
+      #declare gradient_height = #{@args[:gradient_height]};
+      #declare rotate_z = 0; // x-tilt (links)
+      #declare rotate_x = 0; // y-tilt (unten)
+      #declare Z_CORRECTION = #{-@args[:Z_CORRECTION]};
+      
+      #background { color rgb 1 }
+      #{camera}
+
+      #{@args[:object]}
+      // light_source { 
+      //   <0, -5, 0> 
+      //   color White
+      //   fade_distance 5
+      //   fade_power 1
+      //   shadowless
+      // }
+
+    EOF
+    text \
+      .gsub(/rotate_z = .*/, "rotate_z = #{@args[:max_angle_x] * @args[:x_tilt]};") \
+      .gsub(/rotate_x = .*/, "rotate_x = #{-@args[:max_angle_y] * @args[:y_tilt]};") \
+      .gsub('TEXTURE', texture)
+  end
+
+  def post_process()
+    list = ImageList.new(@args[:out]+".png")
+    # .quantize(256, GRAYColorspace)
+    # level(0, 210)
+    list.negate.normalize.write(@args[:out])
+  end
+
 end
 
 def s(s)
   puts "running #{s}"
   system s
   raise "non zero exit code #{s}"if $? != 0
-end
-
-def render(args)
-  tmp_file = "/tmp/#{args[:out]}.pov";
-  File.open(tmp_file, "wb") { |file| file.write("#{args[:pov_doc]}\n")}
-  cmd = "povray  -O#{args[:out]} +ua +H#{args[:size]} +W#{args[:size]} #{tmp_file} &> /dev/null"
-  puts cmd
-  s cmd
 end
 
 ts = 3
@@ -142,18 +200,6 @@ options[:object] = File.open(ARGV[0], "rb").read
 list = []
 
 if options[:view]
-
-  for view in options[:view].split(",")
-    puts "rendering side view"
-    options[:view] = view
-    options[:out] = "side#{options[:view]}.png"
-
-    options[:pov_doc] = pov_doc(options)
-    list << options.clone
-  end
-
-  # also create one default view (bottom)
-  options.delete(:view)
   ts = 0
 end
 
@@ -162,31 +208,26 @@ ts_count = ts * 2 + 1
 s("rm img*.png || true")
 s("rm side*.png || true")
 
+initial_x_tilt = options[:x_tilt]
+initial_y_tilt = options[:y_tilt]
+
 img_nr = 0
 for x_tilt in -ts..ts
   for y_tilt in -ts..ts
-    options[:x_tilt] = ts == 0 ? 0 : x_tilt / ts
-    options[:y_tilt] = ts == 0 ? 0 : y_tilt / ts
-    options[:pov_doc] = pov_doc(options)
-    options[:out] = "img#{img_nr}.png"
-    list << options.clone
+    options[:x_tilt] = initial_x_tilt + (ts == 0 ? 0 : Float(x_tilt) / ts)
+    options[:y_tilt] = initial_y_tilt + (ts == 0 ? 0 : Float(y_tilt) / ts)
+    options[:out] = "img#{img_nr}"
+    list << RenderIt.new(options)
     img_nr+=1
   end
 end
 
 puts "rendering"
-Parallel.map(list, :in_processes=>4){|args| 
-  render(args)
-  puts "."
+Parallel.map(list, :in_processes=>4){|it| 
+  it.render()
 }
 
 puts "post processing"
-list.each {|v|
-  png = v[:out]
-  list = ImageList.new(png)
-  # .quantize(256, GRAYColorspace)
-  # level(0, 210)
-  list.negate.normalize.write(png)
-}
+list.each {|v| v.post_process }
 
 puts "total images: #{ts_count * ts_count}, dimension: #{ts_count}"

@@ -12,24 +12,18 @@ prism {
   < 3, -5>, // point#4
   < 3,  5>, // point#5 ... MUST MATCH THIS POINT
   <-5,  0>  // point#6 (control point... not on curve)
-
+ translate <1.5, 0, 0>
  scale 0.15
  rotate <0, 0, 90>
- translate <+0.1, 0, 0>
+ translate <0, 1, 0>
 
  rotate <rotate_x / 2, 0, rotate_z /2>
  rotate <rotate_x / 2, 0, rotate_z /2>
+
+ translate <0, Z_CORRECTION, 0>
 };
 
-#declare my_prism2 =
 object {
   my_prism
-  bounded_by { my_prism }
-};
-
-object { 
-  my_prism2
-  Align_Trans(my_prism2,-y, <0,0,0>)
   TEXTURE
 }
-
