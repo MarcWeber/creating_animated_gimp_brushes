@@ -12,7 +12,7 @@ class RenderIt
   def initialize(args)
     @args = args.clone
     @args[:Z_CORRECTION] = 0.0
-    @args[:gradient_height] = 0.5
+    @args[:gradient_height] ||= 0.5
   end
 
   def internal_render
@@ -148,10 +148,10 @@ class RenderIt
   end
 
   def post_process()
-    list = ImageList.new(@args[:out]+".png")
+    # list = ImageList.new(@args[:out]+".png")
     # .quantize(256, GRAYColorspace)
     # level(0, 210)
-    list.negate.normalize.write(@args[:out])
+    # list.negate.normalize.write(@args[:out]+".png")
   end
 
 end
@@ -171,17 +171,98 @@ OptionParser.new do |opts|
   opts.on("-d", "--ts [N]", Integer, "number images for each tilt dimension: 2*ts+1") do |v| ts = v end
   opts.on("-s", "--size [N]", Integer, "width of square image") do |v| ts = v end
 
-  opts.on(nil, "--max-angle [N]", Integer, "max-angle") do |v| options[:max_angle_y] = v; options[:max_angle_x] = v end
+  opts.on("-a", "--max-angle [N]", Integer, "max-angle") do |v| options[:max_angle_y] = v; options[:max_angle_x] = v end
 
   opts.on(nil, "--max-angle-x [N]", Integer, "max-angle") do |v| options[:max_angle_y] = v end
   opts.on(nil, "--max-angle-y [N]", Integer, "max-angle") do |v| options[:max_angle_x] = v end
 
   opts.on("-X", "--x_tilt [0-1]", Float, "max-angle") do |v| options[:x_tilt] = v end
   opts.on("-Y", "--y_tilt [0-1]", Float, "max-angle") do |v| options[:y_tilt] = v end
-
+  opts.on("-g", "--gradient_height [0-1]", Float, "gradient height") do |v| options[:gradient_height] = v end
 
   opts.on(nil, "--debug") do |v| options[:debug] = true end
+
+  opts.on("-m", "--make-brush [brush]", String, "description") {|v| options[:make_brush] = v}
+  opts.on("-b", "--gaussian-blur [3]", Integer, "gaussian blurring post processing") {|v| options[:gauss_blur] = v}
+  opts.on("-s", "--spacing [10]", Integer, "spacing %") {|v| options[:spacing] = v}
+
 end.parse!
+
+puts options
+
+if options[:make_brush]
+  options[:description] = options.fetch(:make_brush)
+
+  pngs = Dir.glob("*.png")
+  pngs.sort!
+  list = ImageList.new(pngs[0])
+  size = list.columns
+
+  options[:gauss_blur] ||= 3
+  options[:spacing] ||= 10
+  options[:abs_gih_target_path] = "#{Dir.getwd}/#{options.fetch(:description)}.gih"
+  gimp_script = <<-EOF
+  (let* (
+          ; create image
+         (img (car (gimp-image-new #{size} #{size} 0)))
+        )
+
+        ; load layers
+        #{pngs.map {|v| "(gimp-image-insert-layer img (car (gimp-file-load-layer 1 img \"#{Dir.getwd}/#{v}\")) 0 0)" }.join("\n")}
+        (gimp-display-new img)
+        ; post process images
+        (for-each
+            (lambda (layer)
+                (gimp-image-set-active-layer img layer)
+                (let* (
+                       (drawable (car (gimp-image-get-active-drawable img)))
+                      )
+                      (plug-in-gauss 1 img drawable #{options.fetch(:gauss_blur)} #{options.fetch(:gauss_blur)} 0)
+                ))
+            (vector->list (car (cdr (gimp-image-get-layers img))))
+        )
+
+        ; to grayscale
+        (gimp-image-convert-grayscale img)
+        ; save as gih
+        (file-gih-save 
+          1
+          img
+          (car (gimp-image-get-active-drawable img)) ; why is this required?
+          "file://#{options.fetch(:abs_gih_target_path)}" ; uri
+          "file://#{options.fetch(:abs_gih_target_path)}.raw" ; raw-uri
+          #{options.fetch(:spacing)} ; spacing
+          "#{options.fetch(:description)}" ; description
+          #{size} #{size} ; cell width/height
+          1 1 ; one image per layer
+          2 ; dimension
+          #(2 2)
+          2 ; dimension
+          '("xtilt" "ytilt") ; what to pass here?
+        )
+        ;(gimp-image-delete img)
+  )
+  EOF
+
+  puts "start gimp-2.9 -p -   then paste this script"
+  puts gimp_script
+
+  # # , :chdir=>"/"
+  # # gimp-2.8 -b - 
+  # require "open3"
+
+  # script = "/tmp/gimp-brush-export.scm"
+  # File.open(script, "wb") { |file| file.write(gimp_script+"\n") }
+
+  # Open3.popen3("gimp-2.9", "-b", script) {|stdin, stdout, stderr, thread|
+  #   while true
+  #     puts stdout.read
+  #     puts stderr.read
+  #     sleep(1)
+  #   end
+  # }
+  exit
+end
 
 
 options[:size] ||= 150
@@ -216,7 +297,7 @@ for x_tilt in -ts..ts
   for y_tilt in -ts..ts
     options[:x_tilt] = initial_x_tilt + (ts == 0 ? 0 : Float(x_tilt) / ts)
     options[:y_tilt] = initial_y_tilt + (ts == 0 ? 0 : Float(y_tilt) / ts)
-    options[:out] = "img#{img_nr}"
+    options[:out] = 'img%03d' % [img_nr]
     list << RenderIt.new(options)
     img_nr+=1
   end
