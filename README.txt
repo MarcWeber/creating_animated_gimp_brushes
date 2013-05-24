@@ -13,7 +13,7 @@ I was too lazy to start learning any 3d library.
 
 
 How to create the brush:
-1) ruby run.rb, you should get some *.png files
+1) ruby run.rb "prism.pov", you should get some *.png files
 
 2) copy post-process-brush-layers.scm to ~/.config/gimp-2.9/brushes
 3) in gimp open png files as layers (one image)
@@ -26,3 +26,9 @@ ts number of images to be rendered for each dimenios, see run.rb
   dimension: 2
   ranks: (ts*2+1) (tilt-x)
   ranks: (ts*2+1) (tilt-y)
+
+debugging objects:
+
+eg discs can help to see the plane:
+// disc { <0,0,0>, <0,2,0>, 1, 0.4 }
+// disc { <0,1,0>, <0,2,0>, 1, 0.4 }
